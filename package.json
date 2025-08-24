@@ -99,7 +99,7 @@
         },
         "gitBlameInline.showOnlyCurrentLine": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Show blame annotation only for the current cursor line"
         }
       }

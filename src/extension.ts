@@ -69,31 +69,39 @@ class GitBlameProvider implements vscode.Disposable {
       )
     );
 
-    this.updateBlameAnnotations();
+    // Don't show blame annotations on startup - only show when user clicks/moves cursor
   }
 
   private onActiveEditorChanged() {
-    this.updateBlameAnnotations();
+    // Clear decorations when switching files
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+      editor.setDecorations(this.decorationType, []);
+    }
   }
 
   private onDocumentChanged(event: vscode.TextDocumentChangeEvent) {
     const filePath = event.document.fileName;
     this.blameCache.delete(filePath);
 
-    const config = vscode.workspace.getConfiguration("gitBlameInline");
-    const showOnlyCurrentLine = config.get("showOnlyCurrentLine", true);
-
-    if (!showOnlyCurrentLine) {
-      setTimeout(() => this.updateBlameAnnotations(), 300);
+    // Clear decorations when document changes to avoid showing outdated blame info
+    const editor = vscode.window.activeTextEditor;
+    if (editor && editor.document === event.document) {
+      editor.setDecorations(this.decorationType, []);
     }
   }
 
   private onDocumentSaved(document: vscode.TextDocument) {
     this.blameCache.delete(document.fileName);
-    this.updateBlameAnnotations();
+    // Clear decorations on save to refresh blame data
+    const editor = vscode.window.activeTextEditor;
+    if (editor && editor.document === document) {
+      editor.setDecorations(this.decorationType, []);
+    }
   }
 
   private onSelectionChanged() {
+    // Only update when user actually moves the cursor/clicks
     this.updateBlameAnnotations();
   }
 
@@ -110,12 +118,27 @@ class GitBlameProvider implements vscode.Disposable {
       return;
     }
 
-    try {
-      const blameData = await this.getGitBlameData(filePath);
-      const decorations = this.createDecorations(editor, blameData);
-      editor.setDecorations(this.decorationType, decorations);
-    } catch (error) {
-      editor.setDecorations(this.decorationType, []);
+    const config = vscode.workspace.getConfiguration("gitBlameInline");
+    const showOnlyCurrentLine = config.get("showOnlyCurrentLine", true);
+
+    if (!showOnlyCurrentLine) {
+      // Show blame for all lines
+      try {
+        const blameData = await this.getGitBlameData(filePath);
+        const decorations = this.createDecorations(editor, blameData);
+        editor.setDecorations(this.decorationType, decorations);
+      } catch (error) {
+        editor.setDecorations(this.decorationType, []);
+      }
+    } else {
+      // Show blame only for current line where cursor is positioned
+      try {
+        const blameData = await this.getGitBlameData(filePath);
+        const decorations = this.createCurrentLineDecoration(editor, blameData);
+        editor.setDecorations(this.decorationType, decorations);
+      } catch (error) {
+        editor.setDecorations(this.decorationType, []);
+      }
     }
   }
 
@@ -172,7 +195,6 @@ class GitBlameProvider implements vscode.Disposable {
 
     for (const line of lines) {
       if (line.match(/^[a-f0-9]{40}\s+\d+\s+\d+/)) {
-
         const parts = line.split(/\s+/);
         currentCommit = parts[0];
         currentLineNum = parseInt(parts[2]);
@@ -228,6 +250,71 @@ class GitBlameProvider implements vscode.Disposable {
     }
   }
 
+  private createCurrentLineDecoration(
+    editor: vscode.TextEditor,
+    blameData: Map<number, BlameInfo>
+  ): vscode.DecorationOptions[] {
+    const decorations: vscode.DecorationOptions[] = [];
+    const document = editor.document;
+
+    const config = vscode.workspace.getConfiguration("gitBlameInline");
+    const showAuthor = config.get("showAuthor", true);
+    const showDate = config.get("showDate", true);
+    const showCommit = config.get("showCommit", false);
+    const maxAuthorLength = config.get("maxAuthorLength", 20);
+
+    // Get the current cursor line (1-based)
+    const currentLine = editor.selection.active.line + 1;
+    const blameInfo = blameData.get(currentLine);
+
+    if (!blameInfo) {
+      return decorations;
+    }
+
+    const line = document.lineAt(currentLine - 1);
+    if (line.isEmptyOrWhitespace) {
+      return decorations;
+    }
+
+    let blameText = "";
+
+    if (showAuthor) {
+      let author = blameInfo.author;
+      if (author.length > maxAuthorLength) {
+        author = author.substring(0, maxAuthorLength) + "...";
+      }
+      blameText += author;
+    }
+
+    if (showDate) {
+      if (blameText) blameText += ", ";
+      blameText += blameInfo.date;
+    }
+
+    if (showCommit) {
+      if (blameText) blameText += " ";
+      blameText += `(${blameInfo.commit})`;
+    }
+
+    const range = new vscode.Range(
+      currentLine - 1,
+      line.range.end.character,
+      currentLine - 1,
+      line.range.end.character
+    );
+
+    decorations.push({
+      range,
+      renderOptions: {
+        after: {
+          contentText: ` ${blameText}`,
+        },
+      },
+    });
+
+    return decorations;
+  }
+
   private createDecorations(
     editor: vscode.TextEditor,
     blameData: Map<number, BlameInfo>
@@ -240,21 +327,9 @@ class GitBlameProvider implements vscode.Disposable {
     const showDate = config.get("showDate", true);
     const showCommit = config.get("showCommit", false);
     const maxAuthorLength = config.get("maxAuthorLength", 20);
-    const showOnlyCurrentLine = config.get("showOnlyCurrentLine", true);
 
-    let linesToProcess: number[] = [];
-
-    if (showOnlyCurrentLine) {
-      const currentLine = editor.selection.active.line + 1;
-      linesToProcess = [currentLine];
-    } else {
-      linesToProcess = Array.from(
-        { length: document.lineCount },
-        (_, i) => i + 1
-      );
-    }
-
-    for (const lineNum of linesToProcess) {
+    // Show blame for all lines
+    for (let lineNum = 1; lineNum <= document.lineCount; lineNum++) {
       const blameInfo = blameData.get(lineNum);
       if (!blameInfo) continue;
 
