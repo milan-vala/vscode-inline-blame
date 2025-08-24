@@ -1,6 +1,6 @@
 {
-  "name": "git-inline-inline",
-  "displayName": "Git Inline Blame",
+  "name": "git-blame-inline",
+  "displayName": "Git Blame Inline",
   "description": "Lightweight inline Git blame annotations",
   "version": "0.1.0",
   "engines": {
@@ -96,6 +96,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable Git blame annotations by default"
+        },
+        "gitBlameInline.showOnlyCurrentLine": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show blame annotation only for the current cursor line"
         }
       }
     }
