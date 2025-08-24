@@ -47,16 +47,33 @@ export class GitCodeLensProvider implements vscode.CodeLensProvider {
   }
 
   private shouldShowCodeLens(line: string): boolean {
+    const trimmedLine = line.trim();
+
+    // Only show for TypeScript interfaces, types, enums, and classes
     const patterns = [
-      /^(export\s+)?(interface|class|type|enum)\s+\w+/,
-      /^(export\s+)?(function|const|let|var)\s+\w+/,
-      /^(export\s+)?(abstract\s+)?class\s+\w+/,
-      /^(export\s+)?default\s+(class|function)/,
-      /^import\s+.*from/,
-      /^\/\*\*/, // JSDoc comments
+      /^(export\s+)?interface\s+\w+/, // interface declarations
+      /^(export\s+)?type\s+\w+\s*=/, // type alias declarations
+      /^(export\s+)?enum\s+\w+/, // enum declarations
+      /^(export\s+)?(abstract\s+)?class\s+\w+/, // class declarations
+      /^(export\s+)?default\s+(class|interface)/, // default exports
     ];
 
-    return patterns.some((pattern) => pattern.test(line));
+    // Exclude regular const, let, var, and function assignments
+    const excludePatterns = [
+      /^(export\s+)?const\s+\w+\s*[:=]/, // const declarations
+      /^(export\s+)?let\s+\w+\s*[:=]/, // let declarations
+      /^(export\s+)?var\s+\w+\s*[:=]/, // var declarations
+      /^(export\s+)?function\s+\w+/, // function declarations
+      /^import\s+.*from/, // import statements
+    ];
+
+    // First check if it should be excluded
+    if (excludePatterns.some((pattern) => pattern.test(trimmedLine))) {
+      return false;
+    }
+
+    // Then check if it matches our include patterns
+    return patterns.some((pattern) => pattern.test(trimmedLine));
   }
 
   setEnabled(enabled: boolean) {
