@@ -1,12 +1,15 @@
 import * as vscode from "vscode";
 import { DetailedCommitInfo } from "../utils/gitUtils";
+import { AvatarUtils } from "../utils/avatarUtils";
 
 export class WebviewProvider {
   static createCommitDetailsHtml(info: DetailedCommitInfo): string {
-    const avatarUrl = `https://github.com/${info.author}.png?size=60`;
-    const fallbackAvatar = `https://via.placeholder.com/60/333333/ffffff?text=${info.author
-      .charAt(0)
-      .toUpperCase()}`;
+    const avatarUrl = AvatarUtils.getAvatarUrlForWebview(
+      info.author,
+      info.authorEmail,
+      60
+    );
+    const fallbackAvatar = AvatarUtils.getAvatarFallback(info.author);
 
     return `
     <!DOCTYPE html>
@@ -127,15 +130,15 @@ export class WebviewProvider {
     </head>
     <body>
         <div class="header">
-            <img class="avatar"
-                 src="${avatarUrl}"
-                 alt="${info.author}'s avatar"
+            <img class="avatar" 
+                 src="${avatarUrl}" 
+                 alt="${info.author}'s avatar" 
                  onerror="this.src='${fallbackAvatar}'">
             <div class="commit-info">
                 <div class="author-name">${info.author}</div>
                 <div class="author-email">${info.authorEmail}</div>
                 <div>
-                    <span class="commit-hash"
+                    <span class="commit-hash" 
                           title="Click to copy full commit hash"
                           onclick="navigator.clipboard.writeText('${
                             info.commit
@@ -154,15 +157,15 @@ export class WebviewProvider {
         <div class="metadata">
             <div class="label">Author Date:</div>
             <div class="value">${info.authorDate}</div>
-
+            
             <div class="label">Committer:</div>
             <div class="value">${info.committerName} &lt;${
       info.committerEmail
     }&gt;</div>
-
+            
             <div class="label">Relative Time:</div>
             <div class="value">${info.date}</div>
-
+            
             <div class="label">Full Hash:</div>
             <div class="value">
                 <code style="background-color: var(--vscode-textCodeBlock-background); padding: 2px 4px; border-radius: 3px;">${

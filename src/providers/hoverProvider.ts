@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { GitUtils } from "../utils/gitUtils";
+import { AvatarUtils } from "../utils/avatarUtils";
 
 export class GitHoverProvider implements vscode.HoverProvider {
   private isEnabled: boolean = true;
@@ -38,11 +39,9 @@ export class GitHoverProvider implements vscode.HoverProvider {
     markdown.supportHtml = true;
     markdown.isTrusted = true;
 
-    // Generate avatar URL (using GitHub's default avatar service or fallback)
-    const avatarUrl = `https://github.com/${info.author}.png?size=50`;
-    const fallbackAvatar = `https://via.placeholder.com/50/666666/ffffff?text=${info.author
-      .charAt(0)
-      .toUpperCase()}`;
+    // Use our custom avatar system
+    const avatarUrl = AvatarUtils.getAvatarUrl(info.author, info.authorEmail);
+    const fallbackAvatar = AvatarUtils.getAvatarFallback(info.author);
 
     markdown.appendMarkdown(`
 ### Git Blame Information

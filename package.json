@@ -37,6 +37,11 @@
         "command": "gitBlameInline.disable",
         "title": "Disable Git Blame Annotations",
         "category": "Git Blame Inline"
+      },
+      {
+        "command": "gitBlameInline.showCommitDetails",
+        "title": "Show Commit Details",
+        "category": "Git Blame Inline"
       }
     ],
     "keybindings": [
@@ -101,6 +106,39 @@
           "type": "boolean",
           "default": true,
           "description": "Show blame annotation only for the current cursor line"
+        },
+        "gitBlameInline.showCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show code lens above classes, interfaces, and functions"
+        },
+        "gitBlameInline.showCommitMessage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show commit message in blame annotations"
+        },
+        "gitBlameInline.maxCommitMessageLength": {
+          "type": "number",
+          "default": 50,
+          "minimum": 20,
+          "maximum": 100,
+          "description": "Maximum length for commit messages (truncated with ...)"
+        },
+        "gitBlameInline.useGitHubAvatars": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use GitHub profile pictures (falls back to custom avatars if not found)"
+        },
+        "gitBlameInline.avatarStyle": {
+          "type": "string",
+          "enum": [
+            "anime",
+            "gaming",
+            "minimal",
+            "geometric"
+          ],
+          "default": "anime",
+          "description": "Style of custom avatars when not using GitHub profiles"
         }
       }
     }
