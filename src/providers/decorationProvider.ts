@@ -7,7 +7,7 @@ export class DecorationProvider {
   constructor() {
     this.decorationType = vscode.window.createTextEditorDecorationType({
       after: {
-        color: new vscode.ThemeColor("editorCodeLens.foreground"),
+        color: "#888888",
         fontStyle: "italic",
         margin: "0 0 0 20px",
         textDecoration: "none",
