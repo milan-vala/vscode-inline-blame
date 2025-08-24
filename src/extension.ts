@@ -1,34 +1,33 @@
 import * as vscode from "vscode";
-import * as cp from "child_process";
-import * as path from "path";
-
-interface BlameInfo {
-  author: string;
-  date: string;
-  commit: string;
-}
+import { DecorationProvider } from "./providers/decorationProvider";
+import { GitCodeLensProvider } from "./providers/codeLensProvider";
+import { GitHoverProvider } from "./providers/hoverProvider";
+import { WebviewProvider } from "./providers/webviewProvider";
+import { GitUtils } from "./utils/gitUtils";
 
 export function activate(context: vscode.ExtensionContext) {
-  const blameProvider = new GitBlameProvider();
+  const gitBlameManager = new GitBlameManager();
 
+  // Register commands
   const toggleCommand = vscode.commands.registerCommand(
     "gitBlameInline.toggle",
-    () => {
-      blameProvider.toggle();
-    }
+    () => gitBlameManager.toggle()
   );
 
   const enableCommand = vscode.commands.registerCommand(
     "gitBlameInline.enable",
-    () => {
-      blameProvider.enable();
-    }
+    () => gitBlameManager.enable()
   );
 
   const disableCommand = vscode.commands.registerCommand(
     "gitBlameInline.disable",
-    () => {
-      blameProvider.disable();
+    () => gitBlameManager.disable()
+  );
+
+  const showCommitDetailsCommand = vscode.commands.registerCommand(
+    "gitBlameInline.showCommitDetails",
+    (commitHash: string, filePath: string) => {
+      WebviewProvider.showCommitDetails(commitHash, filePath);
     }
   );
 
@@ -36,26 +35,36 @@ export function activate(context: vscode.ExtensionContext) {
     toggleCommand,
     enableCommand,
     disableCommand,
-    blameProvider
+    showCommitDetailsCommand,
+    gitBlameManager
   );
 }
 
-class GitBlameProvider implements vscode.Disposable {
-  private decorationType: vscode.TextEditorDecorationType;
+class GitBlameManager implements vscode.Disposable {
+  private decorationProvider: DecorationProvider;
+  private codeLensProvider: GitCodeLensProvider;
+  private hoverProvider: GitHoverProvider;
   private isEnabled: boolean = true;
   private disposables: vscode.Disposable[] = [];
-  private blameCache = new Map<string, Map<number, BlameInfo>>();
 
   constructor() {
-    this.decorationType = vscode.window.createTextEditorDecorationType({
-      after: {
-        color: new vscode.ThemeColor("editorCodeLens.foreground"),
-        fontStyle: "italic",
-        margin: "0 0 0 20px",
-        textDecoration: "none",
-      },
-    });
+    this.decorationProvider = new DecorationProvider();
+    this.codeLensProvider = new GitCodeLensProvider();
+    this.hoverProvider = new GitHoverProvider();
 
+    // Register providers
+    this.disposables.push(
+      vscode.languages.registerCodeLensProvider(
+        { scheme: "file" },
+        this.codeLensProvider
+      ),
+      vscode.languages.registerHoverProvider(
+        { scheme: "file" },
+        this.hoverProvider
+      )
+    );
+
+    // Register event listeners
     this.disposables.push(
       vscode.window.onDidChangeActiveTextEditor(
         this.onActiveEditorChanged,
@@ -68,347 +77,97 @@ class GitBlameProvider implements vscode.Disposable {
         this
       )
     );
-
-    // Don't show blame annotations on startup - only show when user clicks/moves cursor
   }
 
-  private onActiveEditorChanged() {
-    // Clear decorations when switching files
-    const editor = vscode.window.activeTextEditor;
+  private onActiveEditorChanged(editor: vscode.TextEditor | undefined) {
     if (editor) {
-      editor.setDecorations(this.decorationType, []);
+      this.decorationProvider.clearDecorations(editor);
     }
   }
 
   private onDocumentChanged(event: vscode.TextDocumentChangeEvent) {
-    const filePath = event.document.fileName;
-    this.blameCache.delete(filePath);
+    GitUtils.clearCache(event.document.fileName);
 
-    // Clear decorations when document changes to avoid showing outdated blame info
     const editor = vscode.window.activeTextEditor;
     if (editor && editor.document === event.document) {
-      editor.setDecorations(this.decorationType, []);
+      this.decorationProvider.clearDecorations(editor);
     }
   }
 
   private onDocumentSaved(document: vscode.TextDocument) {
-    this.blameCache.delete(document.fileName);
-    // Clear decorations on save to refresh blame data
+    GitUtils.clearCache(document.fileName);
+
     const editor = vscode.window.activeTextEditor;
     if (editor && editor.document === document) {
-      editor.setDecorations(this.decorationType, []);
+      this.decorationProvider.clearDecorations(editor);
     }
   }
 
   private onSelectionChanged() {
-    // Only update when user actually moves the cursor/clicks
     this.updateBlameAnnotations();
   }
 
   private async updateBlameAnnotations() {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || !this.isEnabled) {
+    if (!this.isEnabled) {
       return;
     }
 
-    const document = editor.document;
-    const filePath = document.fileName;
-
-    if (document.uri.scheme !== "file") {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
       return;
     }
 
     const config = vscode.workspace.getConfiguration("gitBlameInline");
     const showOnlyCurrentLine = config.get("showOnlyCurrentLine", true);
 
-    if (!showOnlyCurrentLine) {
-      // Show blame for all lines
-      try {
-        const blameData = await this.getGitBlameData(filePath);
-        const decorations = this.createDecorations(editor, blameData);
-        editor.setDecorations(this.decorationType, decorations);
-      } catch (error) {
-        editor.setDecorations(this.decorationType, []);
-      }
-    } else {
-      // Show blame only for current line where cursor is positioned
-      try {
-        const blameData = await this.getGitBlameData(filePath);
-        const decorations = this.createCurrentLineDecoration(editor, blameData);
-        editor.setDecorations(this.decorationType, decorations);
-      } catch (error) {
-        editor.setDecorations(this.decorationType, []);
-      }
-    }
-  }
-
-  private async getGitBlameData(
-    filePath: string
-  ): Promise<Map<number, BlameInfo>> {
-    if (this.blameCache.has(filePath)) {
-      return this.blameCache.get(filePath)!;
-    }
-
-    return new Promise((resolve, reject) => {
-      const workspaceFolder = vscode.workspace.getWorkspaceFolder(
-        vscode.Uri.file(filePath)
-      );
-      if (!workspaceFolder) {
-        reject(new Error("No workspace folder"));
-        return;
-      }
-
-      const relativePath = path.relative(workspaceFolder.uri.fsPath, filePath);
-      const command = `git blame --porcelain "${relativePath}"`;
-
-      cp.exec(
-        command,
-        {
-          cwd: workspaceFolder.uri.fsPath,
-          maxBuffer: 1024 * 1024 * 10,
-        },
-        (error, stdout, stderr) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-
-          try {
-            const blameData = this.parseGitBlameOutput(stdout);
-            this.blameCache.set(filePath, blameData);
-            resolve(blameData);
-          } catch (parseError) {
-            reject(parseError);
-          }
-        }
-      );
-    });
-  }
-
-  private parseGitBlameOutput(output: string): Map<number, BlameInfo> {
-    const lines = output.split("\n");
-    const blameData = new Map<number, BlameInfo>();
-    const commits = new Map<string, Partial<BlameInfo>>();
-
-    let currentCommit = "";
-    let currentLineNum = 0;
-
-    for (const line of lines) {
-      if (line.match(/^[a-f0-9]{40}\s+\d+\s+\d+/)) {
-        const parts = line.split(/\s+/);
-        currentCommit = parts[0];
-        currentLineNum = parseInt(parts[2]);
-
-        if (!commits.has(currentCommit)) {
-          commits.set(currentCommit, { commit: currentCommit });
-        }
-      } else if (line.startsWith("author ")) {
-        const author = line.substring(7);
-        const commitData = commits.get(currentCommit);
-        if (commitData) {
-          commitData.author = author;
-        }
-      } else if (line.startsWith("author-time ")) {
-        const timestamp = parseInt(line.substring(12));
-        const date = new Date(timestamp * 1000);
-        const commitData = commits.get(currentCommit);
-        if (commitData) {
-          commitData.date = this.formatDate(date);
-        }
-      } else if (line.startsWith("\t")) {
-        const commitData = commits.get(currentCommit);
-        if (commitData && commitData.author && commitData.date) {
-          blameData.set(currentLineNum, {
-            author: commitData.author,
-            date: commitData.date,
-            commit: currentCommit.substring(0, 8),
-          });
-        }
-      }
-    }
-
-    return blameData;
-  }
-
-  private formatDate(date: Date): string {
-    const now = new Date();
-    const diffTime = Math.abs(now.getTime() - date.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 1) {
-      return "yesterday";
-    } else if (diffDays < 7) {
-      return `${diffDays} days ago`;
-    } else if (diffDays < 30) {
-      const weeks = Math.floor(diffDays / 7);
-      return `${weeks} week${weeks > 1 ? "s" : ""} ago`;
-    } else if (diffDays < 365) {
-      const months = Math.floor(diffDays / 30);
-      return `${months} month${months > 1 ? "s" : ""} ago`;
-    } else {
-      return date.toLocaleDateString();
-    }
-  }
-
-  private createCurrentLineDecoration(
-    editor: vscode.TextEditor,
-    blameData: Map<number, BlameInfo>
-  ): vscode.DecorationOptions[] {
-    const decorations: vscode.DecorationOptions[] = [];
-    const document = editor.document;
-
-    const config = vscode.workspace.getConfiguration("gitBlameInline");
-    const showAuthor = config.get("showAuthor", true);
-    const showDate = config.get("showDate", true);
-    const showCommit = config.get("showCommit", false);
-    const maxAuthorLength = config.get("maxAuthorLength", 20);
-
-    // Get the current cursor line (1-based)
-    const currentLine = editor.selection.active.line + 1;
-    const blameInfo = blameData.get(currentLine);
-
-    if (!blameInfo) {
-      return decorations;
-    }
-
-    const line = document.lineAt(currentLine - 1);
-    if (line.isEmptyOrWhitespace) {
-      return decorations;
-    }
-
-    let blameText = "";
-
-    if (showAuthor) {
-      let author = blameInfo.author;
-      if (author.length > maxAuthorLength) {
-        author = author.substring(0, maxAuthorLength) + "...";
-      }
-      blameText += author;
-    }
-
-    if (showDate) {
-      if (blameText) blameText += ", ";
-      blameText += blameInfo.date;
-    }
-
-    if (showCommit) {
-      if (blameText) blameText += " ";
-      blameText += `(${blameInfo.commit})`;
-    }
-
-    const range = new vscode.Range(
-      currentLine - 1,
-      line.range.end.character,
-      currentLine - 1,
-      line.range.end.character
+    await this.decorationProvider.updateBlameAnnotations(
+      editor,
+      showOnlyCurrentLine
     );
-
-    decorations.push({
-      range,
-      renderOptions: {
-        after: {
-          contentText: ` ${blameText}`,
-        },
-      },
-    });
-
-    return decorations;
-  }
-
-  private createDecorations(
-    editor: vscode.TextEditor,
-    blameData: Map<number, BlameInfo>
-  ): vscode.DecorationOptions[] {
-    const decorations: vscode.DecorationOptions[] = [];
-    const document = editor.document;
-
-    const config = vscode.workspace.getConfiguration("gitBlameInline");
-    const showAuthor = config.get("showAuthor", true);
-    const showDate = config.get("showDate", true);
-    const showCommit = config.get("showCommit", false);
-    const maxAuthorLength = config.get("maxAuthorLength", 20);
-
-    // Show blame for all lines
-    for (let lineNum = 1; lineNum <= document.lineCount; lineNum++) {
-      const blameInfo = blameData.get(lineNum);
-      if (!blameInfo) continue;
-
-      const line = document.lineAt(lineNum - 1);
-      if (line.isEmptyOrWhitespace) continue;
-
-      let blameText = "";
-
-      if (showAuthor) {
-        let author = blameInfo.author;
-        if (author.length > maxAuthorLength) {
-          author = author.substring(0, maxAuthorLength) + "...";
-        }
-        blameText += author;
-      }
-
-      if (showDate) {
-        if (blameText) blameText += ", ";
-        blameText += blameInfo.date;
-      }
-
-      if (showCommit) {
-        if (blameText) blameText += " ";
-        blameText += `(${blameInfo.commit})`;
-      }
-
-      const range = new vscode.Range(
-        lineNum - 1,
-        line.range.end.character,
-        lineNum - 1,
-        line.range.end.character
-      );
-
-      decorations.push({
-        range,
-        renderOptions: {
-          after: {
-            contentText: ` ${blameText}`,
-          },
-        },
-      });
-    }
-
-    return decorations;
   }
 
   public toggle() {
     this.isEnabled = !this.isEnabled;
-    if (this.isEnabled) {
-      this.updateBlameAnnotations();
-      vscode.window.showInformationMessage("Git Blame Inline: Enabled");
-    } else {
-      const editor = vscode.window.activeTextEditor;
-      if (editor) {
-        editor.setDecorations(this.decorationType, []);
-      }
-      vscode.window.showInformationMessage("Git Blame Inline: Disabled");
-    }
+    this.setEnabled(this.isEnabled);
+
+    const message = this.isEnabled
+      ? "Git Blame Inline: Enabled"
+      : "Git Blame Inline: Disabled";
+    vscode.window.showInformationMessage(message);
   }
 
   public enable() {
     this.isEnabled = true;
-    this.updateBlameAnnotations();
+    this.setEnabled(true);
     vscode.window.showInformationMessage("Git Blame Inline: Enabled");
   }
 
   public disable() {
     this.isEnabled = false;
-    const editor = vscode.window.activeTextEditor;
-    if (editor) {
-      editor.setDecorations(this.decorationType, []);
-    }
+    this.setEnabled(false);
     vscode.window.showInformationMessage("Git Blame Inline: Disabled");
   }
 
+  private setEnabled(enabled: boolean) {
+    this.codeLensProvider.setEnabled(enabled);
+    this.hoverProvider.setEnabled(enabled);
+
+    if (enabled) {
+      this.updateBlameAnnotations();
+    } else {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        this.decorationProvider.clearDecorations(editor);
+      }
+    }
+  }
+
   dispose() {
-    this.decorationType.dispose();
+    this.decorationProvider.dispose();
     this.disposables.forEach((d) => d.dispose());
   }
 }
 
-export function deactivate() {}
+export function deactivate() {
+  GitUtils.clearCache();
+}
