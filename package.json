@@ -1,0 +1,113 @@
+{
+  "name": "git-inline-inline",
+  "displayName": "Git Inline Blame",
+  "description": "Lightweight inline Git blame annotations",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other",
+    "SCM Providers"
+  ],
+  "keywords": [
+    "git",
+    "blame",
+    "annotations",
+    "inline",
+    "lightweight"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "gitBlameInline.toggle",
+        "title": "Toggle Git Blame Annotations",
+        "category": "Git Blame Inline"
+      },
+      {
+        "command": "gitBlameInline.enable",
+        "title": "Enable Git Blame Annotations",
+        "category": "Git Blame Inline"
+      },
+      {
+        "command": "gitBlameInline.disable",
+        "title": "Disable Git Blame Annotations",
+        "category": "Git Blame Inline"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "gitBlameInline.toggle",
+        "key": "ctrl+shift+b",
+        "mac": "cmd+shift+b",
+        "when": "editorTextFocus"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "resourceScheme == file",
+          "command": "gitBlameInline.toggle",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "gitBlameInline.toggle"
+        },
+        {
+          "command": "gitBlameInline.enable"
+        },
+        {
+          "command": "gitBlameInline.disable"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Git Blame Inline",
+      "properties": {
+        "gitBlameInline.showAuthor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show author name in blame annotations"
+        },
+        "gitBlameInline.showDate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show commit date in blame annotations"
+        },
+        "gitBlameInline.showCommit": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show short commit hash in blame annotations"
+        },
+        "gitBlameInline.maxAuthorLength": {
+          "type": "number",
+          "default": 20,
+          "minimum": 5,
+          "maximum": 50,
+          "description": "Maximum length for author names (truncated with ...)"
+        },
+        "gitBlameInline.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Git blame annotations by default"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.74.0",
+    "@types/node": "16.x",
+    "typescript": "^4.9.4"
+  }
+}
