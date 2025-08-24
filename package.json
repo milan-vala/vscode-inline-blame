@@ -7,6 +7,8 @@
     "type": "git",
     "url": "https://github.com/milan-vala/vscode-inline-blame"
   },
+  "publisher": "Milan Vala",
+  "icon": "assets/icon.png",
   "engines": {
     "vscode": "^1.74.0"
   },
