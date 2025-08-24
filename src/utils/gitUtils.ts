@@ -227,4 +227,48 @@ export class GitUtils {
     if (message.length <= maxLength) return message;
     return message.substring(0, maxLength) + "...";
   }
+
+  static async getGitHubRepoUrl(filePath: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+        vscode.Uri.file(filePath)
+      );
+      if (!workspaceFolder) {
+        resolve(null);
+        return;
+      }
+
+      // Get the remote origin URL
+      cp.exec(
+        "git remote get-url origin",
+        { cwd: workspaceFolder.uri.fsPath },
+        (error, stdout) => {
+          if (error) {
+            resolve(null);
+            return;
+          }
+
+          const remoteUrl = stdout.trim();
+
+          // Convert various GitHub URL formats to HTTPS
+          let githubUrl = null;
+
+          if (remoteUrl.includes("github.com")) {
+            if (remoteUrl.startsWith("https://github.com/")) {
+              // Already HTTPS format: https://github.com/user/repo.git
+              githubUrl = remoteUrl.replace(/\.git$/, "");
+            } else if (remoteUrl.startsWith("git@github.com:")) {
+              // SSH format: git@github.com:user/repo.git
+              const match = remoteUrl.match(/git@github\.com:(.+?)(?:\.git)?$/);
+              if (match) {
+                githubUrl = `https://github.com/${match[1]}`;
+              }
+            }
+          }
+
+          resolve(githubUrl);
+        }
+      );
+    });
+  }
 }

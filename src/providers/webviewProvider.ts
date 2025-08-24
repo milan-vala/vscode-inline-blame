@@ -3,7 +3,10 @@ import { DetailedCommitInfo } from "../utils/gitUtils";
 import { AvatarUtils } from "../utils/avatarUtils";
 
 export class WebviewProvider {
-  static createCommitDetailsHtml(info: DetailedCommitInfo): string {
+  static createCommitDetailsHtml(
+    info: DetailedCommitInfo,
+    repoUrl?: string | null
+  ): string {
     const avatarUrl = AvatarUtils.getAvatarUrlForWebview(
       info.author,
       info.authorEmail,
@@ -64,12 +67,21 @@ export class WebviewProvider {
                 font-size: 12px;
                 margin: 10px 0;
                 display: inline-block;
-                cursor: pointer;
                 border: 1px solid var(--vscode-input-border);
-                transition: background-color 0.2s;
             }
-            .commit-hash:hover {
-                background-color: var(--vscode-button-secondaryHoverBackground);
+            .commit-link {
+                color: var(--vscode-textLink-foreground);
+                text-decoration: none;
+                border-bottom: 1px solid var(--vscode-textLink-foreground);
+                transition: opacity 0.2s;
+            }
+            .commit-link:hover {
+                opacity: 0.8;
+            }
+            .github-hint {
+                margin-left: 8px;
+                font-size: 11px;
+                color: var(--vscode-descriptionForeground);
             }
             .branch {
                 background-color: var(--vscode-badge-background);
@@ -112,12 +124,6 @@ export class WebviewProvider {
                 font-size: 14px;
                 word-break: break-word;
             }
-            .copy-hint {
-                font-size: 12px;
-                color: var(--vscode-descriptionForeground);
-                margin-top: 10px;
-                font-style: italic;
-            }
             .section-title {
                 color: var(--vscode-textLink-foreground);
                 font-size: 16px;
@@ -130,19 +136,24 @@ export class WebviewProvider {
     </head>
     <body>
         <div class="header">
-            <img class="avatar" 
-                 src="${avatarUrl}" 
-                 alt="${info.author}'s avatar" 
+            <img class="avatar"
+                 src="${avatarUrl}"
+                 alt="${info.author}'s avatar"
                  onerror="this.src='${fallbackAvatar}'">
             <div class="commit-info">
                 <div class="author-name">${info.author}</div>
                 <div class="author-email">${info.authorEmail}</div>
                 <div>
-                    <span class="commit-hash" 
-                          title="Click to copy full commit hash"
-                          onclick="navigator.clipboard.writeText('${
-                            info.commit
-                          }')">${info.commit}</span>
+                    ${
+                      repoUrl
+                        ? `<a href="${repoUrl}/commit/${info.commit}"
+                          target="_blank"
+                          class="commit-link commit-hash">
+                          ${info.commit}
+                       </a>
+                       <span class="github-hint">🔗 View on GitHub</span>`
+                        : `<span class="commit-hash">${info.commit}</span>`
+                    }
                     <span class="branch">${info.branch}</span>
                 </div>
             </div>
@@ -157,43 +168,53 @@ export class WebviewProvider {
         <div class="metadata">
             <div class="label">Author Date:</div>
             <div class="value">${info.authorDate}</div>
-            
+
             <div class="label">Committer:</div>
             <div class="value">${info.committerName} &lt;${
       info.committerEmail
     }&gt;</div>
-            
+
             <div class="label">Relative Time:</div>
             <div class="value">${info.date}</div>
-            
+
             <div class="label">Full Hash:</div>
             <div class="value">
-                <code style="background-color: var(--vscode-textCodeBlock-background); padding: 2px 4px; border-radius: 3px;">${
-                  info.commit
-                }</code>
+                ${
+                  repoUrl
+                    ? `<a href="${repoUrl}/commit/${info.commit}"
+                      target="_blank"
+                      class="commit-link"
+                      style="font-family: var(--vscode-editor-font-family); background-color: var(--vscode-textCodeBlock-background); padding: 2px 4px; border-radius: 3px;">
+                      ${info.commit}
+                   </a>
+                   <span class="github-hint">🔗 View on GitHub</span>`
+                    : `<code style="background-color: var(--vscode-textCodeBlock-background); padding: 2px 4px; border-radius: 3px;">${info.commit}</code>`
+                }
             </div>
+
+            ${
+              repoUrl
+                ? `<div class="label">Repository:</div>
+               <div class="value">
+                   <a href="${repoUrl}" target="_blank" class="commit-link">
+                       ${repoUrl.replace("https://github.com/", "")}
+                   </a>
+               </div>`
+                : ""
+            }
         </div>
 
-        <div class="copy-hint">
-            💡 Click on the commit hash above to copy it to your clipboard
+        <div style="margin-top: 20px; padding: 15px; background-color: var(--vscode-textBlockQuote-background); border-radius: 6px; text-align: center;">
+            <span style="color: var(--vscode-descriptionForeground); font-size: 13px;">
+                ${
+                  repoUrl
+                    ? "💡 Click any commit hash above to view the full commit on GitHub"
+                    : "💡 Commit details and blame information"
+                }
+            </span>
         </div>
-
-        <script>
-            // Add click-to-copy functionality
-            document.querySelectorAll('.commit-hash').forEach(element => {
-                element.addEventListener('click', () => {
-                    const hash = element.textContent;
-                    navigator.clipboard.writeText(hash).then(() => {
-                        element.style.backgroundColor = 'var(--vscode-button-background)';
-                        element.textContent = 'Copied!';
-                        setTimeout(() => {
-                            element.textContent = hash;
-                            element.style.backgroundColor = 'var(--vscode-textCodeBlock-background)';
-                        }, 1000);
-                    });
-                });
-            });
-        </script>
+    </span>
+</div>
     </body>
     </html>
     `;
@@ -202,10 +223,10 @@ export class WebviewProvider {
   static async showCommitDetails(commitHash: string, filePath: string) {
     try {
       const { GitUtils } = await import("../utils/gitUtils");
-      const detailedInfo = await GitUtils.getDetailedCommitInfo(
-        commitHash,
-        filePath
-      );
+      const [detailedInfo, repoUrl] = await Promise.all([
+        GitUtils.getDetailedCommitInfo(commitHash, filePath),
+        GitUtils.getGitHubRepoUrl(filePath),
+      ]);
 
       const panel = vscode.window.createWebviewPanel(
         "commitDetails",
@@ -217,19 +238,7 @@ export class WebviewProvider {
         }
       );
 
-      panel.webview.html = this.createCommitDetailsHtml(detailedInfo);
-
-      // Handle webview messages if needed
-      panel.webview.onDidReceiveMessage((message) => {
-        switch (message.command) {
-          case "copyHash":
-            vscode.env.clipboard.writeText(message.hash);
-            vscode.window.showInformationMessage(
-              "Commit hash copied to clipboard"
-            );
-            break;
-        }
-      });
+      panel.webview.html = this.createCommitDetailsHtml(detailedInfo, repoUrl);
     } catch (error) {
       vscode.window.showErrorMessage(`Failed to load commit details: ${error}`);
     }
